@@ -1,0 +1,140 @@
+---
+title: "Digital Marketing Group Assignment 2"
+author: "Team 9"
+date: "2024-03-14"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo = FALSE}
+rm(list=ls())
+cat("\014")
+
+setwd("C:/Users/Weihan Weng/Downloads")
+df = read.csv("rocketfuel.csv")
+```
+
+# 1. Exploratory Analysis (0.5 PT)
+## a. How many users are in test and control groups?
+
+```{r prob1}
+
+control <- df[df$test==0,]
+test <- df[df$test==1,]
+
+n_test <- nrow(test)
+n_control <- nrow(control)
+
+print(paste("There are", n_test, "users in test group."))
+print(paste("There are", n_control, "users in control group."))
+```
+
+## b. What is the conversion rate of each group?
+```{r}
+# calculate total impressions and convererted for each groups
+total_test_impr <- sum(test$tot_impr)
+total_test_converted <- sum(test$converted)
+
+total_control_impr <- sum(control$tot_impr)
+total_control_converted <- sum(control$converted)
+
+cvr_test <- round(total_test_converted / total_test_impr * 100, 3)
+cvr_control <- round(total_control_converted / total_control_impr * 100, 3)
+
+print(paste("The conversion rate of test group is ", cvr_test, "%.", 
+            sep = ""))
+print(paste("The conversion rate of control group is ", cvr_control, "%.", 
+            sep = ""))
+```
+
+# 2. Randomization Checks (1 PT)
+## a. What is the total number of impressions for an average user it test versus control? Are they statistically different?
+
+```{r prob2}
+
+imp_test <- t.test(control$tot_impr, test$tot_impr)
+imp_test
+```
+The null hypothesis for this test is that there is no difference in the means of impressions between the control and test groups. The alternative hypothesis is that there is a difference.
+
+Since the p-value (0.8274) is greater than the typical significance level of 0.05, we fail to reject the null hypothesis. This means that we do not have sufficient evidence to conclude that there is a statistically significant difference in the average number of impressions per user between the test and control groups. So they are not statistically different.
+
+## b. What do you conclude?
+
+This minimal difference suggests that users in both groups received a similar number of impressions on average,which could indicate that the randomization process was effectively neutral in terms of exposure to impressions. Since we cannot identify significant differences between the test and control groups, we should continue to monitor the performance of both groups to determine if differences emerge over time.
+
+# 3. Treatment Effect (1 PT)
+## a. Use a t-test to see if the conversion rate of the test group is higher than the control? What is the difference (this is usually called the “lift”)?
+
+```{r}
+
+cvr_test <- t.test(test$converted, control$converted, alternative = "greater")
+cvr_test
+
+lift <- mean(test$converted) - mean(control$converted)
+print(paste("Lift:", lift))
+```
+The p-value is smaller than the common significance level of 0.05, so there are enough evidences can support the hypothesis that the test group has a higher conversion rate than the control group with a high degree of confidence, which means we are able to reject null hypothesis.
+
+## b. Use a logistic regression to calculate the lift. Is your answer the same as in 3.a?
+
+```{r}
+# two models for test and control
+model1 <- glm(formula = converted ~ tot_impr, data=test, family='binomial')
+summary(model1)
+model2 <- glm(formula = converted ~ tot_impr, data=control, family='binomial')
+summary(model2)
+
+# predict value
+test_prob <- predict(model1, newdata=data.frame(tot_impr = test$tot_impr), 
+                     type="response")
+control_prob <- predict(model2, newdata=data.frame(tot_impr = control$tot_impr),
+                        type="response")
+
+# calculate lift
+log_lift <- mean(test_prob) - mean(control_prob)
+print(paste("Lift based on logtistic regression:", log_lift))
+
+```
+Yes, the lift is the same as in pervious question.
+
+# 4. Costs and ROI (1.5 PT)
+## a. How much more money did TaskaBella make by running the campaign (excluding advertising costs)?
+
+```{r}
+profit_margin <- 40
+rev_test <- round(lift * profit_margin * n_test, 3)
+
+print(paste("TaskaBella made", rev_test, "dollars by running the campaign."))
+```
+
+## b. What was the cost of the ad campaign?
+
+```{r}
+cpc <- 9/1000
+cost_test <- round(cpc * sum(df$tot_impr), 3)
+
+print(paste("TaskaBella spent", cost_test, "dollars by running the campaign."))
+```
+
+## c. Calculate the ROI of the campaign?
+
+```{r}
+ROI <- round((rev_test - cost_test) / cost_test, 3)
+
+print(paste("The ROI is ", ROI, ".", sep = ""))
+```
+
+## d. What was the opportunity cost of including a control group? i.e., how much more could TaskaBella have made with a smaller control group or not having a control group at all?
+
+```{r}
+oppprtunity_cost <- round(lift * profit_margin * n_control, 3)
+
+print(paste("TaskaBella would make",  oppprtunity_cost, 
+            "dollars if the company dropped the control group entirely."))
+```
