@@ -1,0 +1,164 @@
+---
+title: "Customer Team 2"
+author: "Weihan Weng"
+date: "2023-11-12"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**1. Predict y (i.e., the decision to join the club) as a function of the available scoring variables x (gender and all hl...) using a LOGIT model on the Training list. Include an intercept term to account for a base response rate. Keep all coefficients (i.e., do not eliminate coefficients which seems to be statistically insignificant). Hand-in: Report coefficients and p-values.**
+
+```{r scoring_reg}
+setwd("C:/Users/Weihan Weng/Downloads")
+
+training = read.csv("Data_Estimation_R.csv")
+
+str(training)
+summary(training)
+
+glm.training <- glm(y ~ location + hl1 + hl2 + hl3 + hl5 + hl6, 
+                    family = binomial(link = "logit"), data = training)
+summary(glm.training)
+```
+**2. Based on your logit model, score all individuals on in the Testing list (you can do this manually, e.g., in Excel, or adapt the R code from class). This means calculate, for all prospects in the Testing sample, the predicted response rate. Using your model, compute (for each individual):**
+
+*(a) Prdicted Response Rate*
+
+*(b) Lift*
+
+*Hand-in: Results for the first 10 Names*
+
+```{r prediction}
+testing = read.csv("Data_Holdout_R.csv")
+str(testing)
+summary(testing)
+
+#Predicting buy/no buy
+prediction <- data.frame(
+  ID = testing$id,
+  ResponseProb = predict(glm.training, testing, type = c("response")),
+  ResponsePredict = round(predict(glm.training, testing, type = c("response")), digits = 0)
+)
+
+prediction$ActualResponse = testing$y #add actual response
+prediction$Lift = prediction$ResponseProb/mean(training$y) #add lift
+
+print(head(prediction, 10))
+```
+
+
+**3. Sort the Testing list in decreasing order of lift.**
+
+```{r predictionSorting}
+prediction.sorting <- prediction[order(prediction$Lift, decreasing = TRUE), ]
+
+print(head(prediction.sorting, 10))
+```
+
+
+**4. Plot Marginal Response Rate vs. Number of Prospects Targeted**
+
+```{r responsePlot}
+plot(prediction.sorting$ResponseProb, 
+     main = "Marginal Response Rate vs. Number of Prospects Targeted",
+     xlab = "Number of Prospects Targeted", ylab = "Marginal Response Rate")
+```
+
+
+**5. We know that average CLV is $30 and the solicitation cost is $12. Based on the Marginal Cost Rule determine who the CD club should send invitations to from the Testing list.**
+
+12/30 = 0.4, so the firm should target as long as the marginal response rate exceeds 0.4.
+
+**The CD club should send the invitations to these IDs:**
+
+331 392 220 360 301 485 204 491 498 332 342 243 444 309 446 401 219 320 438 400 269 455 251 258 300 313 456 343 215 356 443 275 493 227 241 357 462 217 225 338 268 482 264 417 337 379 207 441 273 257 376 494 330 293 327 415 500 202 380 366 324 329 325 230 428 463 233 214 292 261 354 397 222 351 224 460 290 419 289 201 394 256 458 427 277 344 420 368 450 212 488 299 478 210 470 403 474 461 359 459 311 483 391 288 209 270 439 254 294 495 339 422 365 370 414 431
+
+
+
+**6. Compute the Cumulative Sum (aka running sum) for the Predicted Response Rates in decreasing order for the Testing list. Plot the curve for Number of Positive Responses vs. Number of Prospects Targeted.**
+
+```{r CumulativePlot1}
+
+CummlativeSum <- data.frame(matrix(ncol = 2, nrow = 300))
+CummlativeSum$y_predicted = cumsum(prediction.sorting$ResponseProb)
+
+plot(CummlativeSum$y_predicted,
+     main = "Cumulative Response Curve",
+     xlab = "Number of Prospects Targeted", ylab = "Number of Positive Responses",
+     type = "l",
+     col = "blue")
+
+legend("bottomright",
+       c("Predicted Responses"),
+       fill = c("blue"))
+```
+
+
+
+**7. The CD club has only 40 items of the collector’s edition of “Pink Floyd’s The Wall”. Based on the Limited Supply Rule, which prospects (and how many) on the Testing list should the CD club send an invitation to?**
+
+```{r prospects}
+
+supply <- 40
+
+# Initialize index variable
+last_index_less_than_40 <- 0
+
+# Loop to find the index of the last value less than 40
+for (i in seq_along(CummlativeSum$y_predicted)) {
+  if (CummlativeSum$y_predicted[i] < supply) {
+    last_index_less_than_40 <- i
+  }
+}
+
+# Print the result
+print(paste("If there are only", supply, "items, they should send", 
+            last_index_less_than_40, "invitations."))
+
+
+```
+
+
+
+**8. Compute the Cumulative Sum (aka running sum) for the Actual Response Rate (recall this is either 0 or 1) in decreasing order of Predicted Response Rate. Plot the curve for curve for number of Actual Positive Responses vs. Number of Prospects Targeted. Superimpose on this the curve obtained in step 6 above. Using the chart, comment on the differences between the Actual Response Rates and the Predicted Response Rates for the prospects in the Testing list. What is the impact on your results in step 7?**
+
+```{r CumulativePlot2}
+
+CummlativeSum <- data.frame(matrix(ncol = 2, nrow = 300))
+CummlativeSum$y_predicted = cumsum(prediction.sorting$ResponseProb)
+CummlativeSum$y_real = cumsum(prediction.sorting$ActualResponse)
+
+plot(CummlativeSum$y_predicted,
+     main = "Cumulative Response Curve",
+     xlab = "Number of Prospects Targeted", ylab = "Number of Positive Responses",
+     type = "l",
+     col = "blue")
+
+lines(CummlativeSum$y_real,
+      col = "orange",
+      type = "l")
+
+legend("bottomright",
+       c("Predicted Responses", "Actual Responses"),
+       fill = c("blue", "orange"))
+```
+```{R Acknowledgment}
+
+invitations <- 64
+
+# Find the 64th value in CummlativeSum$y_real
+Acknowledgment <- CummlativeSum$y_real[invitations]
+
+# Print the result
+print(paste("If the firm sent", invitations, "invitations, the actual responses would be", 
+            Acknowledgment, "responses."))
+
+```
+We can see that the number of actual responses is lower than prediction.To get the maximum expected response, companies can send more invitations based on predictions. The actual response rate is generally a little below our predicted response rate. This points out that our model overestimates the response rate. 
+
+Based on the prediction, you are targeting 64 prospects since you have only 40 items, but the real response turns out less sales if you target 64 prospects only. Accordingly, we have a higher probability of sending more than 64 invitations to meet the 40-item
+standard.
+
