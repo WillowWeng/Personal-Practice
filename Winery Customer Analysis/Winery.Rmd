@@ -1,0 +1,454 @@
+---
+title: "Winery"
+author: "Weihan Weng"
+date: "2023-11-22"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{R Clean, echo=FALSE}
+rm(list=ls()) #clears work space
+cat("\014")
+```
+
+
+
+Clean and modify dataset
+
+```{r data, echo=FALSE}
+setwd("C:/Users/Weihan Weng/Downloads")
+```
+
+**Market Analysis**
+Make two more data frame, just want avoid cluttering the original database.
+winery_unique is for doing marketing analysis, avoid double counting sales.
+```{R}
+winery = read.csv("Winery_Data_Students.csv")
+
+# Clean dataset
+winery[winery == '#N/A'] <- NA
+winery[winery == ""] <- NA
+winery <- winery[complete.cases(winery), ]
+
+winery_analysis <- data.frame(Customer.ID = winery$Customer.ID, 
+                              Customer.Segment = winery$Customer.Segment,
+                              State = winery$State,         
+                              Sales.2008 = winery$Sales.2008, 
+                              Sales.2009 = winery$Sales.2009, 
+                              Sales.2010 = winery$Sales.2010)
+duplicates <- duplicated(winery_analysis$Customer.ID)
+winery_unique <- winery_analysis[!duplicates, ]
+head(winery_unique,5)
+```
+
+```{R sizeANDsales}
+sales_2008 <- aggregate(Sales.2008 ~ Customer.Segment, winery_unique, FUN = sum)
+sales_2009 <- aggregate(Sales.2009 ~ Customer.Segment, winery_unique, FUN = sum)
+sales_2010 <- aggregate(Sales.2010 ~ Customer.Segment, winery_unique, FUN = sum)
+
+sales <- merge(sales_2008, sales_2009, by = "Customer.Segment", 
+               suffixes = c(".2008", ".2009"))
+sales <- merge(sales, sales_2010, by = "Customer.Segment", 
+               suffixes = c(".2008", ".2010"))
+names(sales)[names(
+  sales) == "Sales.2008"] <- "2008"
+names(sales)[names(
+  sales) == "Sales.2009"] <- "2009"
+names(sales)[names(
+  sales) == "Sales.2010"] <- "2010"
+
+sales$TotalSales <- sales[["2008"]] + sales[["2009"]] + sales[["2010"]]
+
+sales
+```
+
+
+```{R marketshare}
+
+library(ggplot2)
+sales$MarketShare <- sales$TotalSales / sum(sales$TotalSales) * 100
+
+ggplot(sales, aes(x = "", y = TotalSales, fill = Customer.Segment)) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  labs(title = "Customer Segment Market Size", fill = "Customer Segment") +
+  geom_text(aes(label = paste0(round(MarketShare), "%")), 
+            position = position_stack(vjust = 0.5)) +
+  theme_void() +
+  theme(legend.position = "right",
+        plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+Based on Location, find out the top 5 states on sales
+```{R stateAnalysis}
+
+sales2008 <- aggregate(Sales.2008 ~ State, winery_unique, FUN = sum)
+sales2009 <- aggregate(Sales.2009 ~ State, winery_unique, FUN = sum)
+sales2010 <- aggregate(Sales.2010 ~ State, winery_unique, FUN = sum)
+
+state <- merge(sales2008, sales2009, by = "State", 
+               suffixes = c(".2008", ".2009"))
+state <- merge(state, sales2010, by = "State", suffixes = c(".2008", ".2010"))
+
+names(state)[names(
+  state) == "Sales.2008"] <- "2008"
+names(state)[names(
+  state) == "Sales.2009"] <- "2009"
+names(state)[names(
+  state) == "Sales.2010"] <- "2010"
+
+state$Total_Sales <- rowSums(state[, c("2008", "2009", "2010")])
+state <- state[order(state$Total_Sales, decreasing = TRUE), ]
+top_5_states <- head(state, 5)
+top_5_states <- subset(top_5_states, select = -c(Total_Sales))
+```
+
+```{R}
+
+library(tidyr)
+state_convert <- gather(top_5_states, key = "Year", value = "Sales", -State)
+
+ggplot(state_convert, aes(x = State, y = Sales, fill = Year)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Top 5 States", x = "Customer Segment", y = "Sales ($1,000)") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5, face = "bold")) +
+  scale_y_continuous(labels = function(x) x/1000, 
+                     breaks = seq(0, max(state_convert$Sales), by = 50000),
+                     limits = c(0, max(state_convert$Sales)))
+
+```
+
+```{r}
+# Detect whether customers are affected by marketing avtivities
+winery$Response <- ifelse((winery$Newsletter.Subscr + winery$Email.Subscr 
+                           + winery$Winemaker.call) > 1 
+                          & winery$Email.Sales + winery$Newsletter.Sales 
+                          + winery$Winemaker.Call.Sales > 0, 1, 0)
+
+# Convert Customer.Segment to dummy variable and keep other columns
+winery$Customer.Segment <- gsub("High Roller", "HighRoller", 
+                                winery$Customer.Segment)
+winery$Customer.Segment <- gsub("Casual Visitor", "CasualVisitor", 
+                                winery$Customer.Segment)
+winery$Customer.Segment <- gsub("Luxury Estate", "LuxuryEstate", 
+                                winery$Customer.Segment)
+winery$Customer.Segment <- gsub("Wine Enthusiast", "WineEnthusiast", 
+                                winery$Customer.Segment)
+winery$Customer.Segment <- as.factor(winery$Customer.Segment)
+dummy_vars <- model.matrix(~ Customer.Segment - 1, data = winery)
+winery <- cbind(winery[, !names(winery) %in% "Customer.Segment"], dummy_vars)
+
+head(winery, 5)
+```
+
+Divide into training and testing datasets
+
+```{r tt}
+library(caret)
+set.seed(123)
+index <- createDataPartition(y = 1:nrow(winery), p = 0.7, list = FALSE)
+
+train <- winery[index, ]
+test <- winery[-index, ]
+
+head(train, 3)
+head(test, 3)
+```
+
+**Response Analysis (For Entire Sales Process)**
+Make a logistic regression model for entire sales channels, find out the most important/valuable channel can let customer buy.
+
+Based on the outcome of model, Newsletter and Email are the most valuable channels.
+
+```{r}
+glm <- glm(Response ~ Newsletter.Subscr + Email.Subscr + Winemaker.call + 
+             Year.Acquired + Customer.SegmentCasualVisitor +
+             Customer.SegmentCasualVisitor + Customer.SegmentHighRoller + 
+             Customer.SegmentLuxuryEstate + Customer.SegmentWineEnthusiast, 
+           family = binomial(link = "logit"), data = train)
+summary(glm)
+```
+
+Input testing dataset to model and sort based on lift
+
+```{R prediction}
+df <- data.frame(
+  Order.ID = test$Order.ID,
+  Newsletter.Subscr = test$Newsletter.Subscr,
+  Email.Subscr = test$Email.Subscr, 
+  Winemaker.call = test$Winemaker.call,
+  Year.Acquired = test$Year.Acquired,
+  Customer.SegmentCasualVisitor = test$Customer.SegmentCasualVisitor, 
+  Customer.SegmentHighRoller = test$Customer.SegmentHighRoller,
+  Customer.SegmentLuxuryEstate = test$Customer.SegmentLuxuryEstate,
+  Customer.SegmentWineEnthusiast = test$Customer.SegmentWineEnthusiast
+)
+  
+prediction <- data.frame(
+  Order.ID = df$Order.ID,
+  ResponseProb = predict(glm, df, type = c("response")),
+  ResponsePredict = round(predict(glm, df, 
+                                  type = c("response")), digits = 0)
+)
+
+prediction$ActualResponse = test$Response #add actual response
+prediction$Lift = prediction$ResponseProb/mean(train$Response) #add lift
+
+prediction.sorting <- prediction[order(prediction$Lift, decreasing = TRUE), ]
+
+prediction.sorting$cumsum_prob = cumsum(prediction.sorting$ResponseProb)
+prediction.sorting$cumsum_actualresponse = cumsum(
+  prediction.sorting$ActualResponse
+  )
+
+print(head(prediction.sorting, 5))
+```
+
+Use ggplot to make margin response graph
+
+```{R responseggplot}
+
+library(ggplot2)
+
+x_values <- seq(1, nrow(prediction.sorting))
+
+ggplot(prediction.sorting, aes(x = x_values, y = ResponseProb)) +
+  geom_line(color = "red", shape = 1, size = 3) +
+  labs(title = "Marginal Response Rate vs. Number of Prospects Targeted", 
+       x = "Number of Prospects Targeted", y = "Marginal Response Rate") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+```
+
+Use ggplot make cumulative plot
+It looks like the predicted values are in good agreement with the actual values, which may indicate that the model is good.
+
+```{r CumulativeggPlot}
+
+x_values <- seq(1, nrow(prediction.sorting))
+
+ggplot(prediction.sorting) +
+  geom_line(aes(x = x_values, y = cumsum_prob, color = "Predicted Responses"), 
+            linewidth = 1.2) +
+  geom_line(aes(x = x_values, y = cumsum_actualresponse, 
+                color = "Actual Responses"), linewidth = 1.2) +
+  labs(
+    title = "Cumulative Response Curve",
+    x = "Number of Prospects Targeted",
+    y = "Number of Positive Responses"
+  ) +
+  scale_color_manual(values = c("Predicted Responses" = "blue", 
+                                "Actual Responses" = "orange")) +
+  theme_minimal() +
+  theme(legend.position = "bottom", legend.title = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+
+**RFM Analysis**
+I only target on 2010 data
+```{R 2010NewestData}
+
+winery_2010 <- subset(winery, format(
+  as.Date(Date, format = "%d-%b-%y"), "%Y") == "2010")
+winery_2010$Date <- as.Date(winery_2010$Date, format = "%d-%b-%y")
+winery_2010 <- winery_2010[order(winery_2010$Date), ]
+
+library(dplyr)
+winery_2010 <- winery_2010 %>%
+  group_by(Customer.ID) %>%
+  slice(tail(row_number(), 1)) %>%
+  ungroup()
+
+max_date <- winery_2010$Date[which.max(winery_2010$Date)]
+winery_2010$Recency <- max_date - winery_2010$Date
+
+head(winery_2010,5)
+
+```
+
+
+
+```{R RFM}
+
+RFM <- data.frame(ID = winery_2010$Customer.ID, Recency = winery_2010$Recency, 
+                  Frequency = winery_2010$Orders.2010,
+                  Monetary = winery_2010$Sales.2010)
+RFM$Frequency <- as.integer(RFM$Frequency)
+RFM$Recency <- as.integer(RFM$Recency)
+
+head(RFM,5)
+```
+
+Calculate the scores
+```{r}
+source("RFM_Functions.R")
+RFM.score <-getIndependentScore(RFM)
+head(RFM.score, 10)
+tail(RFM.score, 10)
+```
+I am not sure if Monetary can be negative, it makes sense, like customers want to return products (2010).
+```{r}
+count_555 <- sum(RFM.score$Total_Score == 555)
+paste("There are", count_555, "customers are high-value customers.")
+
+```
+
+
+**RFM based on 2009 data**
+```{r}
+winery_2009 <- subset(winery, format(
+  as.Date(Date, format = "%d-%b-%y"), "%Y") == "2009")
+winery_2009$Date <- as.Date(winery_2009$Date, format = "%d-%b-%y")
+winery_2009 <- winery_2009[order(winery_2009$Date), ]
+
+winery_2009 <- winery_2009 %>%
+  group_by(Customer.ID) %>%
+  mutate(Sales.2009 = sum(Sale.Amount, na.rm = TRUE)) %>%
+  slice(tail(row_number(), 1)) %>%
+  ungroup()
+
+max_date2009 <- "12/31/2009"
+max_date2009 <- as.Date(max_date2009, format = "%m/%d/%Y")
+winery_2009$Recency <- max_date2009 - winery_2009$Date
+
+head(winery_2009,5)
+```
+
+
+```{r}
+RFM2009 <- data.frame(ID = winery_2009$Customer.ID, 
+                      Recency = winery_2009$Recency, 
+                      Frequency = winery_2009$Orders.2009,
+                      Monetary = winery_2009$Sales.2009)
+RFM2009$Frequency <- as.integer(RFM2009$Frequency)
+RFM2009$Recency <- as.integer(RFM2009$Recency)
+
+source("RFM_Functions.R")
+RFM2009.score <-getIndependentScore(RFM2009)
+head(RFM2009.score, 10)
+tail(RFM2009.score, 10)
+```
+
+```{r}
+RFM2009.score_sorted <- RFM2009.score[order(RFM2009.score$ID),]
+merged_data <- inner_join(winery, RFM2009.score, by = c("Customer.ID" = "ID"))
+merged_data <- distinct(merged_data, Customer.ID)
+
+data2010 <- data.frame(Customer.ID = winery_2010$Customer.ID)
+
+merged_data <- merged_data %>%
+  mutate(`Response2010` = ifelse(Customer.ID %in% data2010$Customer.ID, 1, 0))
+
+head(merged_data)
+```
+
+
+```{R}
+# Crosstab of Recency Score vs. Buyer (did or did not buy offer)
+library(gmodels)
+#For Recency
+data_crosstab_Recency <- CrossTable(RFM2009.score_sorted$R_Score, 
+                                    merged_data$Response2010,prop.r=TRUE, 
+                                    prop.c=FALSE, prop.t=FALSE, 
+                                    prop.chisq=FALSE, dnn = c("R","Response"))
+# For Frequency
+data_crosstab_Frequency <- CrossTable(RFM2009.score_sorted$F_Score, 
+                                      merged_data$Response2010,prop.r=TRUE, 
+                                      prop.c=FALSE, prop.t=FALSE, 
+                                      prop.chisq=FALSE, dnn = c("F","Response"))
+# For Monetary
+data_crosstab_Monetary <- CrossTable(RFM2009.score_sorted$M_Score, 
+                                     merged_data$Response2010,prop.r=TRUE, 
+                                     prop.c=FALSE, prop.t=FALSE, 
+                                     prop.chisq=FALSE, dnn = c("M","Response"))
+# For Full RFM
+data_crosstab_RFM <- CrossTable(RFM2009.score_sorted$Total_Score, 
+                                merged_data$Response2010,prop.r=TRUE, 
+                                prop.c=FALSE, prop.t=FALSE, prop.chisq=FALSE, 
+                                dnn = c("RFM","Response"))
+```
+```{r}
+plot_Recency <- data.frame(
+  Recency_Segments = rownames(data_crosstab_Recency$prop.row),
+  Response_rate = data_crosstab_Recency$prop.row[, 2]
+)
+
+ggplot(plot_Recency, aes(x = Recency_Segments, y = Response_rate, 
+                         fill = Recency_Segments)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Response Rate by Recency Segment", x = "Recency Segments",
+       y = "Response Rate") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  scale_fill_manual(values = rep("springgreen3", nrow(plot_Recency))) +
+  guides(fill = "none")
+```
+
+```{r}
+plot_Frequency <- data.frame(
+  Frequency_Segments = rownames(data_crosstab_Frequency$prop.row),
+  Response_rate = data_crosstab_Frequency$prop.row[, 2]
+)
+
+ggplot(plot_Frequency, aes(x = Frequency_Segments, y = Response_rate, fill = Frequency_Segments)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Response Rate by Frequency Segment", x = "Frequency Segments",
+       y = "Response Rate") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  scale_fill_manual(values = rep("violet", nrow(plot_Frequency))) +
+  guides(fill = "none")
+```
+
+```{r}
+plot_Monetary <- data.frame(
+  Monetary_Segments = rownames(data_crosstab_Monetary$prop.row),
+  Response_rate = data_crosstab_Monetary$prop.row[, 2]
+)
+
+ggplot(plot_Monetary, aes(x = Monetary_Segments, y = Response_rate, fill = Monetary_Segments)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Response Rate by Monetary Segment", x = "Monetary Segments",
+       y = "Response Rate") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  scale_fill_manual(values = rep("goldenrod1", nrow(plot_Monetary))) +
+  guides(fill = "none")
+```
+
+```{r}
+plot_data <- data.frame(
+  RFM_Segments = rownames(data_crosstab_RFM$prop.row),
+  Response_rate = data_crosstab_RFM$prop.row[, 2]
+)
+
+ggplot(plot_data, aes(x = RFM_Segments, y = Response_rate, fill = RFM_Segments)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Response Rate by RFM Segment (Independent)", x = "RFM Segments",
+       y = "Response Rate") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  scale_fill_manual(values = rep("red", nrow(plot_data))) +
+  guides(fill = "none")
+
+```
+
+```{r}
+RFM_names = names(data_crosstab_RFM$t[,1])
+# Remove names from data
+non_buyers = unname(data_crosstab_RFM$t[,1], force = FALSE)
+buyers     = unname(data_crosstab_RFM$t[,2], force = FALSE)
+
+data.liftgains <-data.frame(RFM=RFM_names, ncustomers=non_buyers+buyers, 
+                            nbuyers=buyers)
+data.liftgains$Percentage <- round(data.liftgains$nbuyers/
+                                     data.liftgains$ncustomers * 100, 2)
+data.liftgains <- data.liftgains[order(- data.liftgains$Percentage),]
+
+best.RFM.seg <- data.liftgains[data.liftgains$Percentage == 100, ]
+best.RFM.seg
+
+```
