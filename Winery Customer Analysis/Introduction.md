@@ -1,3 +1,5 @@
+# Executive Summary
+
 The project involved analyzing a dataset containing customer, sales, and marketing information from a winery spanning more than 65k orders from 2008 to 2010 to determine the most effective marketing channels (email subscription, newsletter subscription, winemaker calls) and identify the most promising target customers to increase the winery's sales. The proposed solution included evaluating and improving advertising strategies by analyzing the response patterns of each marketing channel through logistic regression and linear regression. In addition, the team conducted recency, frequency, and monetary (RFM) analysis to classify high-potential customer groups and strategic sales channels.
 
 In the end, the team found that email subscriptions tend to increase purchases per order, while newsletter subscriptions generally decrease spending per purchase. Reaching casual visitors via the winemaker calls can help increase revenue per purchase, and offering discount coupons and encouraging in-store purchases can boost sales.
