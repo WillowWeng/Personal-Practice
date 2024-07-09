@@ -260,6 +260,7 @@ AND id2 NOT IN (
 );
 
 -- 3. For all cases where A is friends with B, and B is friends with C, add a new friendship for the pair A and C. Do not add duplicate friendships, friendships that already exist, or friendships with oneself. (This one is a bit challenging; congratulations if you get it right.)
+-- Note: In MySQL, the EXCEPT command is not supported, which applies to SQLite. However, we can use LEFT JOIN and IS NULL to achieve similar functionality.
 INSERT INTO friend
 SELECT f1.id1, f2.id2
 FROM friend AS f1 
